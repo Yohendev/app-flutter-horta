@@ -1158,6 +1158,7 @@ class PlantDetailPage extends StatefulWidget {
   State<PlantDetailPage> createState() => _PlantDetailPageState();
 }
 
+// É a tela de detalhes completos de uma planta específica (neste caso, demonstrando a Alface crespa / Lactuca sativa).
 class _PlantDetailPageState extends State<PlantDetailPage> {
   late bool _watered = widget.isWatered;
   void _setWatered() {
@@ -1320,6 +1321,7 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
   );
 }
 
+// É a tela de detalhes completos de uma planta específica (neste caso, demonstrando a Alface crespa / Lactuca sativa).
 class _PlantMetric extends StatelessWidget {
   const _PlantMetric({
     required this.icon,
@@ -1366,7 +1368,7 @@ class ScannerPage extends StatefulWidget {
   @override
   State<ScannerPage> createState() => _ScannerPageState();
 }
-
+// Controla a tela de escaneamento de folhas (simulando a câmera do celular).
 class _ScannerPageState extends State<ScannerPage> {
   bool _scanned = false;
   @override
@@ -1379,7 +1381,7 @@ class _ScannerPageState extends State<ScannerPage> {
     ),
   );
 }
-
+// Controla a tela de escaneamento de folhas (simulando a câmera do celular).
 class _ScannerView extends StatelessWidget {
   const _ScannerView({required this.onScan});
   final VoidCallback onScan;
@@ -1476,7 +1478,7 @@ class _ScannerView extends StatelessWidget {
     ],
   );
 }
-
+// Controla a tela de escaneamento de folhas (simulando a câmera do celular).
 class _ScannerCircle extends StatelessWidget {
   const _ScannerCircle({required this.icon, required this.onTap});
   final IconData icon;
@@ -1497,6 +1499,7 @@ class _ScannerCircle extends StatelessWidget {
   );
 }
 
+// Exibe o resultado do diagnóstico após o escaneamento da folha.
 class _DiagnosisResult extends StatelessWidget {
   const _DiagnosisResult({required this.onClose});
   final VoidCallback onClose;
