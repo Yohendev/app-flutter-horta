@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 
 void main() => runApp(const HortaApp());
+// =====================================================================
+// PALETA DE CORES OFICIAL - HORTA APP
+// =====================================================================
+const _yellow = Color(0xFFFFE04E); // Cor de fundo de "Sua Horta está crescendo"
+const _sage = Color(0xFF97BA7F);   // Cor primária (verde da vegetação), símbolos (ao clicar), Scanner e texto 
+const _coral = Color(0xFFF9998D);  // Cor de destaque/alerta (ex: scanner, wishlist)
+const _peach = Color(0xFFF6A882);  // Tom complementar quente para detalhes e avatares/vasos
+const _ink = Color(0xFF23352B);    // Cor principal para tipografia (alto contraste e suavidade)
+const _canvas = Color(0xFFF8F8F3); // Cor de fundo padrão das telas (Canvas/Scaffold)
 
-const _yellow = Color(0xFFFFE04E);
-const _sage = Color(0xFF97BA7F);
-const _coral = Color(0xFFF9998D);
-const _peach = Color(0xFFF6A882);
-const _ink = Color(0xFF23352B);
-const _canvas = Color(0xFFF8F8F3);
 
+/// Widget raiz do aplicativo HortaApp.
+/// Configura o tema global, paleta de cores Material 3 e tipografia padrão.
 class HortaApp extends StatelessWidget {
   const HortaApp({super.key});
 
@@ -34,6 +39,9 @@ class HortaApp extends StatelessWidget {
   }
 }
 
+
+/// Tela principal contendo a barra de navegação inferior (BottomNavigationBar)
+/// e o gerenciamento de troca de abas (Início, Plantas, Guia, Perfil).
 class GardenShell extends StatefulWidget {
   const GardenShell({super.key});
 
@@ -43,13 +51,15 @@ class GardenShell extends StatefulWidget {
 
 class _GardenShellState extends State<GardenShell> {
   int _currentIndex = 0;
-  bool _watered = false;
+  bool _watered = false; // Estado global simulado para controle de rega da planta
 
+// Navega para a página de escaneamento de folhas/plantas
   void _openScanner() {
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const ScannerPage()));
   }
 
+// Navega para os detalhes da planta com callback para atualizar o estado de rega
   void _openPlant() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -75,8 +85,9 @@ class _GardenShellState extends State<GardenShell> {
       const ProfilePage(),
     ];
 
-    return Scaffold(
+    return Scaffold( 
       body: SafeArea(child: pages[_currentIndex]),
+      // Botão flutuante centralizado na barra de navegação (Scanner)
       floatingActionButton: FloatingActionButton(
         heroTag: 'scanner',
         onPressed: _openScanner,
@@ -95,6 +106,8 @@ class _GardenShellState extends State<GardenShell> {
   }
 }
 
+
+/// Barra de navegação inferior customizada com entalhe (notch) para o botão flutuante.
 class _GardenNavigation extends StatelessWidget {
   const _GardenNavigation({
     required this.selectedIndex,
@@ -107,6 +120,7 @@ class _GardenNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
+      // NOMES DA BARRA INFERIOR
       (Icons.home_rounded, 'Início'),
       (Icons.local_florist_outlined, 'Plantas'),
       (Icons.menu_book_outlined, 'Guia'),
@@ -133,6 +147,8 @@ class _GardenNavigation extends StatelessWidget {
             active: selectedIndex == 1,
             onTap: () => onSelected(1),
           ),
+
+          // Espaço reservado para o FAB central
           const SizedBox(width: 62),
           _NavItem(
             icon: items[2].$1,
@@ -152,6 +168,7 @@ class _GardenNavigation extends StatelessWidget {
   }
 }
 
+/// Item individual da barra de navegação inferior.
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
@@ -195,6 +212,7 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+// PÁGINA INICIAL (HOME): Exibe saudações, banner de status, resumo do cultivo e tarefas do dia.
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
@@ -217,6 +235,8 @@ class HomePage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 110),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
+
+              // CABEÇALHO COM PERFIL DO USUÁRIO E NOTIFICAÇÕES
               Row(
                 children: [
                   const CircleAvatar(
@@ -253,7 +273,7 @@ class HomePage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 25),
-              const _WelcomeCard(),
+              const _WelcomeCard(), // Banner amarelo de boas-vindas
               const SizedBox(height: 28),
               _SectionHeader(
                 title: 'Meu cultivo',
@@ -268,6 +288,8 @@ class HomePage extends StatelessWidget {
                 action: 'Calendário',
                 onAction: () {},
               ),
+
+              // TAREFA INTERATIVA DE REGAR, A BOLINHA DE ATIVAR E DESATIVAR
               const SizedBox(height: 13),
               _CareTask(
                 done: watered,
@@ -283,6 +305,8 @@ class HomePage extends StatelessWidget {
                   onChanged: (_) => onWater(),
                 ),
               ),
+
+              // TAREFA ESTÁTICA DE LUZ SOLAR
               const SizedBox(height: 10),
               const _CareTask(
                 done: false,
@@ -295,6 +319,8 @@ class HomePage extends StatelessWidget {
                   color: Color(0xFF9BA49D),
                 ),
               ),
+
+              // ATALHO PARA ESCANEAMENTO
               const SizedBox(height: 25),
               _ScanCallout(onTap: onScan),
             ]),
@@ -305,6 +331,8 @@ class HomePage extends StatelessWidget {
   }
 }
 
+
+/// Card de destaque principal na Home com fundo _yellow.
 class _WelcomeCard extends StatelessWidget {
   const _WelcomeCard();
 
@@ -362,6 +390,7 @@ class _WelcomeCard extends StatelessWidget {
   }
 }
 
+/// Card de resumo da planta ativa na Home.
 class _PlantOverviewCard extends StatelessWidget {
   const _PlantOverviewCard({required this.onTap});
   final VoidCallback onTap;
@@ -431,6 +460,7 @@ class _PlantOverviewCard extends StatelessWidget {
   }
 }
 
+/// Etiqueta compacta utilizada para tags informativas (ex: status de rega/sol).
 class _TinyTag extends StatelessWidget {
   const _TinyTag({required this.icon, required this.text});
   final IconData icon;
@@ -463,6 +493,7 @@ class _TinyTag extends StatelessWidget {
   }
 }
 
+/// Componente de tarefa diária (permite concluir ou interagir com o cuidado).
 class _CareTask extends StatelessWidget {
   const _CareTask({
     required this.done,
@@ -533,6 +564,7 @@ class _CareTask extends StatelessWidget {
   }
 }
 
+/// Callout (Banner) de destaque para incentivar o uso do scanner de diagnóstico.
 class _ScanCallout extends StatelessWidget {
   const _ScanCallout({required this.onTap});
   final VoidCallback onTap;
@@ -590,6 +622,7 @@ class _ScanCallout extends StatelessWidget {
   }
 }
 
+/// Página de listagem de plantas do usuário e itens salvos na lista de desejos.
 class PlantsPage extends StatelessWidget {
   const PlantsPage({super.key, required this.onOpenPlant});
   final VoidCallback onOpenPlant;
@@ -644,6 +677,7 @@ class PlantsPage extends StatelessWidget {
   }
 }
 
+/// Card de exibição da planta cadastrada na listagem.
 class _PlantGridCard extends StatelessWidget {
   const _PlantGridCard({required this.onTap});
   final VoidCallback onTap;
@@ -699,6 +733,7 @@ class _PlantGridCard extends StatelessWidget {
   }
 }
 
+/// Indicador em formato de pílula para o estado de saúde da planta.
 class _HealthPill extends StatelessWidget {
   const _HealthPill();
   @override
@@ -719,6 +754,7 @@ class _HealthPill extends StatelessWidget {
   );
 }
 
+/// Botão em formato de card tracejado para adicionar novas plantas.
 class _AddPlantCard extends StatelessWidget {
   const _AddPlantCard({required this.onTap});
   final VoidCallback onTap;
@@ -750,6 +786,7 @@ class _AddPlantCard extends StatelessWidget {
   );
 }
 
+/// Item da lista de desejos (Wishlist) para futuras plantas
 class _WishlistRow extends StatelessWidget {
   const _WishlistRow();
   @override
@@ -789,6 +826,7 @@ class _WishlistRow extends StatelessWidget {
   );
 }
 
+/// Página de Guia de Cuidados com dicas e boas práticas de jardinagem.
 class CareGuidePage extends StatelessWidget {
   const CareGuidePage({super.key});
 
@@ -807,7 +845,7 @@ class CareGuidePage extends StatelessWidget {
           style: TextStyle(color: Color(0xFF718078)),
         ),
         const SizedBox(height: 23),
-        const _TipHero(),
+        const _TipHero(), // Dica em destaque da semana
         const SizedBox(height: 26),
         const Text(
           'Para a sua alface',
@@ -842,6 +880,7 @@ class CareGuidePage extends StatelessWidget {
   }
 }
 
+/// Card principal com gradiente para a Dica da Semana.
 class _TipHero extends StatelessWidget {
   const _TipHero();
   @override
@@ -910,6 +949,7 @@ class _TipHero extends StatelessWidget {
   );
 }
 
+/// Bloco de guia numerado para tutoriais rápidos.
 class _GuideTile extends StatelessWidget {
   const _GuideTile({
     required this.number,
@@ -979,6 +1019,7 @@ class _GuideTile extends StatelessWidget {
   );
 }
 
+// PÁGINA DE PERFIL DO USUÁRIO com estatísticas de cultivo e opções de ajuste.
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
   @override
@@ -1030,6 +1071,7 @@ class ProfilePage extends StatelessWidget {
   );
 }
 
+/// Linha de estatísticas do perfil (Plantas, Dias cultivando, Guias lidos).
 class _ProfileStatRow extends StatelessWidget {
   const _ProfileStatRow();
   @override
@@ -1050,6 +1092,7 @@ class _ProfileStatRow extends StatelessWidget {
   );
 }
 
+/// Widget auxiliar para exibir uma estatística individual no perfil.
 class _Stat extends StatelessWidget {
   const _Stat({required this.value, required this.label});
   final String value;
@@ -1073,6 +1116,7 @@ class _Stat extends StatelessWidget {
   );
 }
 
+/// Opção individual de menu nas configurações de perfil.
 class _ProfileOption extends StatelessWidget {
   const _ProfileOption({required this.icon, required this.label});
   final IconData icon;
@@ -1101,6 +1145,7 @@ class _ProfileOption extends StatelessWidget {
   );
 }
 
+/// Página de Detalhes da Planta selecionada.
 class PlantDetailPage extends StatefulWidget {
   const PlantDetailPage({
     super.key,
@@ -1315,6 +1360,7 @@ class _PlantMetric extends StatelessWidget {
   );
 }
 
+/// Placeholder temporário para a tela de Scanner/Diagnóstico.
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
   @override
@@ -1626,6 +1672,8 @@ class _ResultStep extends StatelessWidget {
   );
 }
 
+
+/// Cabeçalho padrão para seções com título e botão de ação à direita.
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
     required this.title,
@@ -1659,6 +1707,7 @@ class _SectionHeader extends StatelessWidget {
   );
 }
 
+/// Botão circular contendo um ícone (usado em barras de navegação superiores e voltar).
 class _RoundIconButton extends StatelessWidget {
   const _RoundIconButton({required this.icon, required this.onTap});
   final IconData icon;
@@ -1675,6 +1724,7 @@ class _RoundIconButton extends StatelessWidget {
   );
 }
 
+/// Componente gráfico vetorizado customizado para ilustrar a plantinha e o vaso.
 class _PlantArtwork extends StatelessWidget {
   const _PlantArtwork({required this.size, required this.potColor});
   final double size;
@@ -1687,6 +1737,7 @@ class _PlantArtwork extends StatelessWidget {
   );
 }
 
+/// Desenha o vaso e as folhas usando o CustomPainter.
 class _PlantPainter extends CustomPainter {
   _PlantPainter(this.potColor);
   final Color potColor;
