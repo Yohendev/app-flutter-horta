@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'modelos_horta.dart';
+
 void main() => runApp(const HortaApp());
 // =====================================================================
 // PALETA DE CORES OFICIAL - HORTA APP
@@ -51,12 +53,74 @@ class GardenShell extends StatefulWidget {
 
 class _GardenShellState extends State<GardenShell> {
   int _currentIndex = 0;
-  bool _watered = false; // Estado global simulado para controle de rega da planta
+  late final _jardineiro = Jardineiro(
+    nome: 'Júlia Martins',
+    email: 'julia@example.com',
+  );
+  late final _horta = _jardineiro.criarHorta('Sua horta');
+  late final Planta _planta;
+  late final TarefaCuidado _rega;
+  final _deficiencia = Deficiencia(
+    nome: 'Possível falta de nitrogênio',
+    sintomas: 'As folhas inferiores parecem mais claras que o normal.',
+  );
+
+  bool get _watered => _rega.status == StatusTarefa.concluida;
+
+  @override
+  void initState() {
+    super.initState();
+    final agora = DateTime.now();
+    final alface = EspeciePlanta(
+      nomePopular: 'Alface crespa',
+      nomeCientifico: 'Lactuca sativa',
+    );
+    alface
+      ..recomendarGuia(GuiaCuidado(
+        titulo: 'Como regar sem exagerar',
+        conteudo: 'O solo conta quando está na hora de molhar.',
+        categoria: TipoCuidado.rega,
+      ))
+      ..recomendarGuia(GuiaCuidado(
+        titulo: 'A luz certa para crescer',
+        conteudo: 'Sol suave pela manhã deixa as folhas felizes.',
+        categoria: TipoCuidado.luz,
+      ))
+      ..recomendarGuia(GuiaCuidado(
+        titulo: 'Folhas bonitas e verdes',
+        conteudo: 'Identifique carências antes que elas avancem.',
+        categoria: TipoCuidado.nutricao,
+      ));
+    _planta = _horta.plantar(
+      apelido: alface.nomePopular,
+      dataPlantio: DateTime(agora.year, agora.month, agora.day - 12),
+      especie: alface,
+      statusSaude: StatusSaude.saudavel,
+    );
+    _rega = _planta.agendarCuidado(TipoCuidado.rega, agora);
+    _planta.agendarCuidado(TipoCuidado.luz, agora);
+  }
+
+  void _updateWatering(bool watered) {
+    setState(() {
+      if (watered) {
+        _rega.concluir(DateTime.now());
+      } else {
+        _rega.reabrir();
+      }
+    });
+  }
 
 // Navega para a página de escaneamento de folhas/plantas
   void _openScanner() {
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const ScannerPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ScannerPage(
+          planta: _planta,
+          deficiencia: _deficiencia,
+        ),
+      ),
+    );
   }
 
 // Navega para os detalhes da planta com callback para atualizar o estado de rega
@@ -64,8 +128,9 @@ class _GardenShellState extends State<GardenShell> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlantDetailPage(
-          isWatered: _watered,
-          onWaterChanged: (value) => setState(() => _watered = value),
+          planta: _planta,
+          rega: _rega,
+          onWaterChanged: _updateWatering,
         ),
       ),
     );
@@ -75,14 +140,15 @@ class _GardenShellState extends State<GardenShell> {
   Widget build(BuildContext context) {
     final pages = [
       HomePage(
+        planta: _planta,
         watered: _watered,
         onOpenPlant: _openPlant,
         onScan: _openScanner,
-        onWater: () => setState(() => _watered = !_watered),
+        onWater: () => _updateWatering(!_watered),
       ),
-      PlantsPage(onOpenPlant: _openPlant),
-      const CareGuidePage(),
-      const ProfilePage(),
+      PlantsPage(planta: _planta, onOpenPlant: _openPlant),
+      CareGuidePage(especie: _planta.especie),
+      ProfilePage(jardineiro: _jardineiro),
     ];
 
     return Scaffold( 
@@ -216,12 +282,14 @@ class _NavItem extends StatelessWidget {
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
+    required this.planta,
     required this.watered,
     required this.onOpenPlant,
     required this.onScan,
     required this.onWater,
   });
 
+  final Planta planta;
   final bool watered;
   final VoidCallback onOpenPlant;
   final VoidCallback onScan;
@@ -245,19 +313,19 @@ class HomePage extends StatelessWidget {
                     child: Icon(Icons.person_rounded, color: Colors.white),
                   ),
                   const SizedBox(width: 11),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Bom dia, Júlia',
+                          'Bom dia, ${planta.horta.jardineiro.nome.split(' ').first}',
                           style: TextStyle(
                             fontSize: 13,
                             color: Color(0xFF627168),
                           ),
                         ),
                         Text(
-                          'Sua horta',
+                          planta.horta.nome,
                           style: TextStyle(
                             fontSize: 23,
                             fontWeight: FontWeight.w800,
@@ -281,7 +349,7 @@ class HomePage extends StatelessWidget {
                 onAction: onOpenPlant,
               ),
               const SizedBox(height: 14),
-              _PlantOverviewCard(onTap: onOpenPlant),
+              _PlantOverviewCard(planta: planta, onTap: onOpenPlant),
               const SizedBox(height: 25),
               _SectionHeader(
                 title: 'Cuidados de hoje',
@@ -392,7 +460,8 @@ class _WelcomeCard extends StatelessWidget {
 
 /// Card de resumo da planta ativa na Home.
 class _PlantOverviewCard extends StatelessWidget {
-  const _PlantOverviewCard({required this.onTap});
+  const _PlantOverviewCard({required this.planta, required this.onTap});
+  final Planta planta;
   final VoidCallback onTap;
 
   @override
@@ -417,12 +486,12 @@ class _PlantOverviewCard extends StatelessWidget {
                 child: const _PlantArtwork(size: 82, potColor: _peach),
               ),
               const SizedBox(width: 15),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Alface crespa',
+                      planta.apelido,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 18,
@@ -430,7 +499,7 @@ class _PlantOverviewCard extends StatelessWidget {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Plantada há 12 dias',
+                      'Plantada há ${_diasDeCultivo(planta)} dias',
                       style: TextStyle(color: Color(0xFF77847B), fontSize: 12),
                     ),
                     SizedBox(height: 13),
@@ -622,9 +691,18 @@ class _ScanCallout extends StatelessWidget {
   }
 }
 
+int _diasDeCultivo(Planta planta) {
+  final hoje = DateTime.now();
+  final plantio = planta.dataPlantio;
+  return DateTime.utc(hoje.year, hoje.month, hoje.day)
+      .difference(DateTime.utc(plantio.year, plantio.month, plantio.day))
+      .inDays;
+}
+
 /// Página de listagem de plantas do usuário e itens salvos na lista de desejos.
 class PlantsPage extends StatelessWidget {
-  const PlantsPage({super.key, required this.onOpenPlant});
+  const PlantsPage({super.key, required this.planta, required this.onOpenPlant});
+  final Planta planta;
   final VoidCallback onOpenPlant;
 
   @override
@@ -656,7 +734,7 @@ class PlantsPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 25),
-        _PlantGridCard(onTap: onOpenPlant),
+        _PlantGridCard(planta: planta, onTap: onOpenPlant),
         const SizedBox(height: 13),
         _AddPlantCard(
           onTap: () => ScaffoldMessenger.of(context).showSnackBar(
@@ -679,7 +757,8 @@ class PlantsPage extends StatelessWidget {
 
 /// Card de exibição da planta cadastrada na listagem.
 class _PlantGridCard extends StatelessWidget {
-  const _PlantGridCard({required this.onTap});
+  const _PlantGridCard({required this.planta, required this.onTap});
+  final Planta planta;
   final VoidCallback onTap;
 
   @override
@@ -706,23 +785,23 @@ class _PlantGridCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              const Row(
+              Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Alface crespa',
+                      planta.apelido,
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
-                  _HealthPill(),
+                  _HealthPill(status: planta.statusSaude),
                 ],
               ),
               const SizedBox(height: 4),
-              const Text(
-                '12 dias de cultivo',
+              Text(
+                '${_diasDeCultivo(planta)} dias de cultivo',
                 style: TextStyle(color: Color(0xFF78847C), fontSize: 12),
               ),
             ],
@@ -735,7 +814,8 @@ class _PlantGridCard extends StatelessWidget {
 
 /// Indicador em formato de pílula para o estado de saúde da planta.
 class _HealthPill extends StatelessWidget {
-  const _HealthPill();
+  const _HealthPill({required this.status});
+  final StatusSaude status;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -743,8 +823,13 @@ class _HealthPill extends StatelessWidget {
       color: const Color(0xFFEAF3E5),
       borderRadius: BorderRadius.circular(20),
     ),
-    child: const Text(
-      'Saudável',
+    child: Text(
+      switch (status) {
+        StatusSaude.saudavel => 'Saudável',
+        StatusSaude.precisaDeCuidado => 'Precisa de cuidado',
+        StatusSaude.comDeficiencia => 'Com deficiência',
+        StatusSaude.emRecuperacao => 'Em recuperação',
+      },
       style: TextStyle(
         color: Color(0xFF56834B),
         fontSize: 11,
@@ -828,7 +913,8 @@ class _WishlistRow extends StatelessWidget {
 
 /// Página de Guia de Cuidados com dicas e boas práticas de jardinagem.
 class CareGuidePage extends StatelessWidget {
-  const CareGuidePage({super.key});
+  const CareGuidePage({super.key, required this.especie});
+  final EspeciePlanta especie;
 
   @override
   Widget build(BuildContext context) {
@@ -852,29 +938,24 @@ class CareGuidePage extends StatelessWidget {
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 13),
-        const _GuideTile(
-          number: '01',
-          color: _yellow,
-          icon: Icons.water_drop_outlined,
-          title: 'Como regar sem exagerar',
-          subtitle: 'O solo conta quando está na hora de molhar.',
-        ),
-        const SizedBox(height: 11),
-        const _GuideTile(
-          number: '02',
-          color: _peach,
-          icon: Icons.wb_sunny_outlined,
-          title: 'A luz certa para crescer',
-          subtitle: 'Sol suave pela manhã deixa as folhas felizes.',
-        ),
-        const SizedBox(height: 11),
-        const _GuideTile(
-          number: '03',
-          color: _sage,
-          icon: Icons.eco_outlined,
-          title: 'Folhas bonitas e verdes',
-          subtitle: 'Identifique carências antes que elas avancem.',
-        ),
+        for (final (index, guia) in especie.guias.indexed) ...[
+          if (index > 0) const SizedBox(height: 11),
+          _GuideTile(
+            number: '${index + 1}'.padLeft(2, '0'),
+            color: switch (guia.categoria) {
+              TipoCuidado.rega => _yellow,
+              TipoCuidado.luz => _peach,
+              TipoCuidado.nutricao => _sage,
+            },
+            icon: switch (guia.categoria) {
+              TipoCuidado.rega => Icons.water_drop_outlined,
+              TipoCuidado.luz => Icons.wb_sunny_outlined,
+              TipoCuidado.nutricao => Icons.eco_outlined,
+            },
+            title: guia.titulo,
+            subtitle: guia.conteudo,
+          ),
+        ],
       ],
     );
   }
@@ -1021,7 +1102,8 @@ class _GuideTile extends StatelessWidget {
 
 // PÁGINA DE PERFIL DO USUÁRIO com estatísticas de cultivo e opções de ajuste.
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, required this.jardineiro});
+  final Jardineiro jardineiro;
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(22, 25, 22, 110),
@@ -1034,9 +1116,9 @@ class ProfilePage extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 12),
-      const Center(
+      Center(
         child: Text(
-          'Júlia Martins',
+          jardineiro.nome,
           style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
         ),
       ),
@@ -1149,10 +1231,12 @@ class _ProfileOption extends StatelessWidget {
 class PlantDetailPage extends StatefulWidget {
   const PlantDetailPage({
     super.key,
-    required this.isWatered,
+    required this.planta,
+    required this.rega,
     required this.onWaterChanged,
   });
-  final bool isWatered;
+  final Planta planta;
+  final TarefaCuidado rega;
   final ValueChanged<bool> onWaterChanged;
   @override
   State<PlantDetailPage> createState() => _PlantDetailPageState();
@@ -1160,10 +1244,10 @@ class PlantDetailPage extends StatefulWidget {
 
 // É a tela de detalhes completos de uma planta específica (neste caso, demonstrando a Alface crespa / Lactuca sativa).
 class _PlantDetailPageState extends State<PlantDetailPage> {
-  late bool _watered = widget.isWatered;
+  bool get _watered => widget.rega.status == StatusTarefa.concluida;
+
   void _setWatered() {
-    setState(() => _watered = !_watered);
-    widget.onWaterChanged(_watered);
+    setState(() => widget.onWaterChanged(!_watered));
   }
 
   @override
@@ -1195,14 +1279,14 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
             ),
           ),
           const SizedBox(height: 22),
-          const Row(
+          Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Alface crespa',
+                      widget.planta.apelido,
                       style: TextStyle(
                         fontSize: 27,
                         fontWeight: FontWeight.w800,
@@ -1210,7 +1294,7 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Lactuca sativa',
+                      widget.planta.especie.nomeCientifico,
                       style: TextStyle(
                         fontStyle: FontStyle.italic,
                         color: Color(0xFF718078),
@@ -1219,7 +1303,7 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
                   ],
                 ),
               ),
-              _HealthPill(),
+              _HealthPill(status: widget.planta.statusSaude),
             ],
           ),
           const SizedBox(height: 21),
@@ -1364,20 +1448,52 @@ class _PlantMetric extends StatelessWidget {
 
 /// Placeholder temporário para a tela de Scanner/Diagnóstico.
 class ScannerPage extends StatefulWidget {
-  const ScannerPage({super.key});
+  const ScannerPage({
+    super.key,
+    required this.planta,
+    required this.deficiencia,
+  });
+
+  final Planta planta;
+  final Deficiencia deficiencia;
   @override
   State<ScannerPage> createState() => _ScannerPageState();
 }
 // Controla a tela de escaneamento de folhas (simulando a câmera do celular).
 class _ScannerPageState extends State<ScannerPage> {
-  bool _scanned = false;
+  Diagnostico? _diagnostico;
+
+  void _scan() {
+    if (_diagnostico != null) return;
+    final agora = DateTime.now();
+    final diagnostico = widget.planta.registrarDiagnostico(
+      realizadoEm: agora,
+      status: StatusDiagnostico.concluido,
+      observacao: 'Análise concluída agora',
+      uri: 'horta-demo:/folha',
+      capturadaEm: agora,
+    );
+    diagnostico.adicionarAchado(
+      confianca: 0.7,
+      severidade: Severidade.leve,
+      recomendacao: 'Adicione composto orgânico ao solo.\n'
+          'Regue sem encharcar e acompanhe por 7 dias.',
+      deficiencia: widget.deficiencia,
+    );
+    setState(() => _diagnostico = diagnostico);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFF163125),
     body: SafeArea(
-      child: _scanned
-          ? _DiagnosisResult(onClose: () => Navigator.pop(context))
-          : _ScannerView(onScan: () => setState(() => _scanned = true)),
+      child: switch (_diagnostico) {
+        final diagnostico? => _DiagnosisResult(
+          diagnostico: diagnostico,
+          onClose: () => Navigator.pop(context),
+        ),
+        null => _ScannerView(onScan: _scan),
+      },
     ),
   );
 }
@@ -1455,6 +1571,7 @@ class _ScannerView extends StatelessWidget {
             ),
             const SizedBox(height: 17),
             GestureDetector(
+              key: const ValueKey('scan-leaf'),
               onTap: onScan,
               child: Container(
                 width: 72,
@@ -1501,7 +1618,11 @@ class _ScannerCircle extends StatelessWidget {
 
 // Exibe o resultado do diagnóstico após o escaneamento da folha.
 class _DiagnosisResult extends StatelessWidget {
-  const _DiagnosisResult({required this.onClose});
+  const _DiagnosisResult({
+    required this.diagnostico,
+    required this.onClose,
+  });
+  final Diagnostico diagnostico;
   final VoidCallback onClose;
   @override
   Widget build(BuildContext context) => Stack(
@@ -1545,19 +1666,19 @@ class _DiagnosisResult extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Alface identificada',
+                          '${diagnostico.planta.especie.nomePopular.split(' ').first} identificada',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 18,
                           ),
                         ),
                         Text(
-                          'Análise concluída agora',
+                          diagnostico.observacao,
                           style: TextStyle(
                             color: Color(0xFF77847C),
                             fontSize: 12,
@@ -1575,17 +1696,17 @@ class _DiagnosisResult extends StatelessWidget {
                   color: const Color(0xFFFFF0DC),
                   borderRadius: BorderRadius.circular(17),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline_rounded, color: Color(0xFFD68B24)),
+                    const Icon(Icons.info_outline_rounded, color: Color(0xFFD68B24)),
                     SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Possível falta de nitrogênio',
+                            diagnostico.achados.single.deficiencia.nome,
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               fontSize: 14,
@@ -1593,7 +1714,7 @@ class _DiagnosisResult extends StatelessWidget {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            'As folhas inferiores parecem mais claras que o normal.',
+                            diagnostico.achados.single.deficiencia.sintomas,
                             style: TextStyle(fontSize: 12, height: 1.28),
                           ),
                         ],
@@ -1608,14 +1729,9 @@ class _DiagnosisResult extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
               const SizedBox(height: 8),
-              const _ResultStep(
-                number: '1',
-                text: 'Adicione composto orgânico ao solo.',
-              ),
-              const _ResultStep(
-                number: '2',
-                text: 'Regue sem encharcar e acompanhe por 7 dias.',
-              ),
+              for (final (index, passo)
+                  in diagnostico.achados.single.recomendacao.split('\n').indexed)
+                _ResultStep(number: '${index + 1}', text: passo),
               const SizedBox(height: 17),
               FilledButton(
                 onPressed: onClose,
