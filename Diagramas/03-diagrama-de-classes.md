@@ -14,12 +14,17 @@ class Jardineiro {
 class Horta {
   +id: String {UUID v4}
   +nome: String
+  +plantasAtivas: Iterable<Planta>
 }
 class Planta {
   +id: String {UUID v4}
   +apelido: String
   +dataPlantio: DateTime
-  +statusSaude: StatusSaude
+  +statusSaude: StatusSaude {derivado}
+  +estado: EstadoPlanta {derivado}
+  +iniciarDiagnostico(): Diagnostico
+  +registrarTratamento(diagnostico, descricao): Tratamento
+  +arquivar(): void
 }
 class EspeciePlanta {
   +id: String {UUID v4}
@@ -44,6 +49,12 @@ class Diagnostico {
   +realizadoEm: DateTime
   +status: StatusDiagnostico
   +observacao: String
+  +finalizar(resultado, observacao): void
+}
+class Tratamento {
+  +id: String {UUID v4}
+  +descricao: String
+  +registradoEm: DateTime
 }
 class ImagemEscaneada {
   +id: String {UUID v4}
@@ -67,6 +78,15 @@ enum StatusSaude {
   precisaDeCuidado
   comDeficiencia
   emRecuperacao
+}
+enum EstadoPlanta {
+  cadastrada
+  saudavel
+  precisaDeCuidado
+  emDiagnostico
+  comDeficiencia
+  emRecuperacao
+  arquivada
 }
 enum TipoCuidado {
   rega
@@ -94,12 +114,15 @@ Horta "1" *-- "0..*" Planta : contém
 Planta "0..*" -- "1" EspeciePlanta : pertence à espécie
 Planta "1" *-- "0..*" TarefaCuidado : possui
 Planta "1" *-- "0..*" Diagnostico : histórico
+Planta "1" *-- "0..*" Tratamento : histórico
+Tratamento "0..*" --> "1" Diagnostico : trata
 Diagnostico "1" *-- "1" ImagemEscaneada : usa como origem
 Diagnostico "1" *-- "0..*" AchadoDiagnostico : produz
 AchadoDiagnostico "0..*" -- "1" Deficiencia : aponta para
 EspeciePlanta "0..*" -- "0..*" GuiaCuidado : recomenda
 
 Planta ..> StatusSaude
+Planta ..> EstadoPlanta
 TarefaCuidado ..> TipoCuidado
 TarefaCuidado ..> StatusTarefa
 GuiaCuidado ..> TipoCuidado

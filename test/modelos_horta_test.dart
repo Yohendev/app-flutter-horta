@@ -25,7 +25,6 @@ void main() {
         apelido: 'Alface crespa',
         dataPlantio: agora,
         especie: especie,
-        statusSaude: StatusSaude.saudavel,
       );
 
       expect(jardineiro.hortas.single, same(horta));
@@ -90,23 +89,16 @@ void main() {
       apelido: 'Alface crespa',
       dataPlantio: agora,
       especie: especie,
-      statusSaude: StatusSaude.saudavel,
     );
-    Diagnostico diagnosticar() => planta.registrarDiagnostico(
+    Diagnostico diagnosticar() => planta.iniciarDiagnostico(
       realizadoEm: agora,
-      status: StatusDiagnostico.concluido,
-      observacao: 'Resultado demonstrativo',
       uri: 'horta-demo:/folha',
       capturadaEm: agora,
     );
 
     final primeiro = diagnosticar();
-    final segundo = diagnosticar();
-    expect(planta.diagnosticos, [primeiro, segundo]);
     expect(primeiro.planta, same(planta));
     expect(primeiro.imagem.diagnostico, same(primeiro));
-    expect(segundo.imagem.diagnostico, same(segundo));
-    expect(primeiro.imagem, isNot(same(segundo.imagem)));
     expect(primeiro.imagem.capturadaEm, agora);
     expect(primeiro.achados, isEmpty);
 
@@ -129,7 +121,20 @@ void main() {
     expect(deficiencia.achados, isEmpty);
     final achado = adicionar(primeiro, 0);
     final outroAchado = adicionar(primeiro, 1);
+    primeiro.finalizar(StatusDiagnostico.concluido, 'Resultado demonstrativo');
+    planta.registrarTratamento(primeiro, 'Composto aplicado');
+    final segundo = diagnosticar();
     final achadoDoSegundo = adicionar(segundo, 0.7);
+    segundo.finalizar(StatusDiagnostico.concluido, 'Deficiência persiste');
+    expect(planta.diagnosticos, [primeiro, segundo]);
+    expect(segundo.imagem.diagnostico, same(segundo));
+    expect(primeiro.imagem, isNot(same(segundo.imagem)));
+    expect(planta.estado, EstadoPlanta.comDeficiencia);
+    expect(planta.tratamentos.single.diagnostico, same(primeiro));
+    expect(
+      () => planta.registrarTratamento(primeiro, 'Antigo'),
+      throwsStateError,
+    );
     expect(primeiro.achados, [achado, outroAchado]);
     expect(achado.diagnostico, same(primeiro));
     expect(achado.deficiencia, same(deficiencia));
@@ -155,4 +160,130 @@ void main() {
     expect(ids, hasLength(12));
     expect(ids, everyElement(matches(uuidV4)));
   });
+
+  Planta plantar() => jardineiro
+      .criarHorta('Horta', relogio: () => agora)
+      .plantar(apelido: 'Alface', dataPlantio: agora, especie: especie);
+
+  Diagnostico escanear(Planta planta) => planta.iniciarDiagnostico(
+    realizadoEm: agora,
+    uri: 'horta-demo:/folha',
+    capturadaEm: agora,
+  );
+
+  test('considera o vencimento e todas as tarefas pendentes de uma planta', () {
+    final planta = plantar();
+    expect(planta.estado, EstadoPlanta.saudavel);
+    final prazo = agora.add(const Duration(hours: 1));
+    final rega = planta.agendarCuidado(TipoCuidado.rega, prazo);
+    final luz = planta.agendarCuidado(TipoCuidado.luz, prazo);
+    planta.agendarCuidado(
+      TipoCuidado.nutricao,
+      prazo.add(const Duration(days: 1)),
+    );
+    expect(planta.estado, EstadoPlanta.saudavel);
+    agora = prazo;
+    expect(planta.estado, EstadoPlanta.precisaDeCuidado);
+    rega.concluir(agora);
+    expect(planta.estado, EstadoPlanta.precisaDeCuidado);
+    luz.concluir(agora);
+    expect(planta.estado, EstadoPlanta.saudavel);
+    rega.reabrir();
+    expect(planta.estado, EstadoPlanta.precisaDeCuidado);
+  });
+
+  test(
+    'encerra a análise de acordo com o resultado e os cuidados pendentes',
+    () {
+      final planta = plantar();
+      final primeiro = escanear(planta);
+      expect(planta.estado, EstadoPlanta.emDiagnostico);
+      expect(planta.statusSaude, StatusSaude.saudavel);
+      expect(() => escanear(planta), throwsStateError);
+      expect(planta.arquivar, throwsStateError);
+      expect(
+        () => primeiro.finalizar(StatusDiagnostico.emAnalise, ''),
+        throwsStateError,
+      );
+      primeiro.finalizar(StatusDiagnostico.inconclusivo, 'Imagem pouco nítida');
+      expect(planta.estado, EstadoPlanta.saudavel);
+      expect(primeiro.status, StatusDiagnostico.inconclusivo);
+      expect(
+        () => primeiro.finalizar(StatusDiagnostico.concluido, ''),
+        throwsStateError,
+      );
+
+      final tarefa = planta.agendarCuidado(TipoCuidado.rega, agora);
+      escanear(planta).finalizar(StatusDiagnostico.inconclusivo, 'Pouca luz');
+      expect(planta.estado, EstadoPlanta.precisaDeCuidado);
+      escanear(planta)
+          .finalizar(StatusDiagnostico.concluido, 'Sem deficiência');
+      expect(planta.estado, EstadoPlanta.precisaDeCuidado);
+      final falhou = escanear(planta);
+      tarefa.concluir(agora);
+      falhou.finalizar(StatusDiagnostico.falhou, 'Erro de processamento');
+      expect(planta.estado, EstadoPlanta.saudavel);
+    },
+  );
+
+  test(
+    'exige tratamento vinculado e mantém o histórico ao recuperar e arquivar',
+    () {
+      final planta = plantar();
+      final primeiro = escanear(planta);
+      primeiro.adicionarAchado(
+        confianca: 0.8,
+        severidade: Severidade.leve,
+        recomendacao: 'Aplicar composto',
+        deficiencia: Deficiencia(nome: 'Nitrogênio', sintomas: 'Folhas claras'),
+      );
+      primeiro.finalizar(
+        StatusDiagnostico.concluido,
+        'Deficiência identificada',
+      );
+      expect(planta.estado, EstadoPlanta.comDeficiencia);
+      expect(planta.tratamentos, isEmpty);
+      expect(() => escanear(planta), throwsStateError);
+      final outro = escanear(plantar());
+      outro.finalizar(StatusDiagnostico.concluido, 'Sem deficiência');
+      expect(
+        () => planta.registrarTratamento(outro, 'Adubo'),
+        throwsStateError,
+      );
+      expect(
+        () => planta.registrarTratamento(primeiro, '  '),
+        throwsArgumentError,
+      );
+      final tratamento = planta.registrarTratamento(
+        primeiro,
+        'Aplicado composto',
+      );
+      final reavaliacao = escanear(planta);
+      expect(planta.estado, EstadoPlanta.emRecuperacao);
+      reavaliacao.finalizar(
+        StatusDiagnostico.inconclusivo,
+        'Imagem pouco nítida',
+      );
+      expect(planta.estado, EstadoPlanta.emRecuperacao);
+      final resultado = escanear(planta)
+        ..finalizar(StatusDiagnostico.concluido, 'Sem deficiência');
+      expect(planta.estado, EstadoPlanta.saudavel);
+      final tarefa = planta.agendarCuidado(TipoCuidado.rega, agora);
+      planta.arquivar();
+      expect(planta.estado, EstadoPlanta.arquivada);
+      expect(planta.horta.plantasAtivas, isEmpty);
+      expect(planta.horta.plantas.single, same(planta));
+      expect(planta.diagnosticos, [primeiro, reavaliacao, resultado]);
+      expect(primeiro.achados, hasLength(1));
+      expect(planta.tratamentos.single, same(tratamento));
+      expect(() => escanear(planta), throwsStateError);
+      expect(() => tarefa.concluir(agora), throwsStateError);
+      expect(tarefa.reabrir, throwsStateError);
+      expect(
+        () => planta.agendarCuidado(TipoCuidado.luz, agora),
+        throwsStateError,
+      );
+      expect(planta.arquivar, throwsStateError);
+    },
+  );
 }

@@ -58,14 +58,12 @@ class _GardenShellState extends State<GardenShell> {
     email: 'julia@example.com',
   );
   late final _horta = _jardineiro.criarHorta('Sua horta');
-  late final Planta _planta;
-  late final TarefaCuidado _rega;
+  late final EspeciePlanta _especieGuia;
+  Planta? _plantaEmDestaque;
   final _deficiencia = Deficiencia(
     nome: 'Possível falta de nitrogênio',
     sintomas: 'As folhas inferiores parecem mais claras que o normal.',
   );
-
-  bool get _watered => _rega.status == StatusTarefa.concluida;
 
   @override
   void initState() {
@@ -75,6 +73,7 @@ class _GardenShellState extends State<GardenShell> {
       nomePopular: 'Alface crespa',
       nomeCientifico: 'Lactuca sativa',
     );
+    _especieGuia = alface;
     alface
       ..recomendarGuia(GuiaCuidado(
         titulo: 'Como regar sem exagerar',
@@ -91,78 +90,142 @@ class _GardenShellState extends State<GardenShell> {
         conteudo: 'Identifique carências antes que elas avancem.',
         categoria: TipoCuidado.nutricao,
       ));
-    _planta = _horta.plantar(
-      apelido: alface.nomePopular,
+    _plantar(
       dataPlantio: DateTime(agora.year, agora.month, agora.day - 12),
       especie: alface,
-      statusSaude: StatusSaude.saudavel,
     );
-    _rega = _planta.agendarCuidado(TipoCuidado.rega, agora);
-    _planta.agendarCuidado(TipoCuidado.luz, agora);
   }
 
-  void _updateWatering(bool watered) {
+  void _plantar({required DateTime dataPlantio, required EspeciePlanta especie}) {
+    final agora = DateTime.now();
+    _plantaEmDestaque = _horta.plantar(
+      apelido: especie.nomePopular,
+      dataPlantio: dataPlantio,
+      especie: especie,
+    )
+      ..agendarCuidado(TipoCuidado.rega, agora)
+      ..agendarCuidado(TipoCuidado.luz, agora);
+  }
+
+  Future<void> _adicionarPlanta() async {
+    final especie = await showDialog<EspeciePlanta>(
+      context: context,
+      builder: (_) => const _CadastroPlantaDialog(),
+    );
+    if (!mounted || especie == null) return;
+    setState(() => _plantar(dataPlantio: DateTime.now(), especie: especie));
+  }
+
+  void _atualizarCuidado(TarefaCuidado tarefa, bool concluida) {
     setState(() {
-      if (watered) {
-        _rega.concluir(DateTime.now());
+      if (concluida) {
+        tarefa.concluir(DateTime.now());
       } else {
-        _rega.reabrir();
+        tarefa.reabrir();
       }
     });
   }
 
 // Navega para a página de escaneamento de folhas/plantas
-  void _openScanner() {
-    Navigator.of(context).push(
+  Future<void> _openScanner(Planta planta) async {
+    if (!planta.podeEscanear) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Registre o tratamento antes de reavaliar.'),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ScannerPage(
-          planta: _planta,
+          planta: planta,
           deficiencia: _deficiencia,
         ),
       ),
     );
+    if (mounted) setState(() {});
   }
 
 // Navega para os detalhes da planta com callback para atualizar o estado de rega
-  void _openPlant() {
-    Navigator.of(context).push(
+  Future<void> _openPlant(Planta planta) async {
+    _plantaEmDestaque = planta;
+    final rega = planta.tarefas.firstWhere(
+      (tarefa) => tarefa.tipo == TipoCuidado.rega,
+    );
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlantDetailPage(
-          planta: _planta,
-          rega: _rega,
-          onWaterChanged: _updateWatering,
+          planta: planta,
+          rega: rega,
+          onWaterChanged: (concluida) => _atualizarCuidado(rega, concluida),
         ),
       ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Widget _inicioComPlanta(Planta planta) {
+    final rega = planta.tarefas.firstWhere((t) => t.tipo == TipoCuidado.rega);
+    final luz = planta.tarefas.firstWhere((t) => t.tipo == TipoCuidado.luz);
+    return HomePage(
+      planta: planta,
+      watered: rega.status == StatusTarefa.concluida,
+      onOpenPlant: () => _openPlant(planta),
+      onOpenPlants: () => setState(() => _currentIndex = 1),
+      onScan: () => _openScanner(planta),
+      onWater: () => _atualizarCuidado(rega, rega.status == StatusTarefa.pendente),
+      luzConcluida: luz.status == StatusTarefa.concluida,
+      onLight: () => _atualizarCuidado(luz, luz.status == StatusTarefa.pendente),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final plantas = _horta.plantasAtivas.toList();
+    final planta = plantas.contains(_plantaEmDestaque)
+        ? _plantaEmDestaque
+        : plantas.lastOrNull;
     final pages = [
-      HomePage(
-        planta: _planta,
-        watered: _watered,
+      if (planta != null)
+        _inicioComPlanta(planta)
+      else
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Nenhuma planta no cultivo ativo.'),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _adicionarPlanta,
+                child: const Text('Adicionar planta'),
+              ),
+            ],
+          ),
+        ),
+      PlantsPage(
+        plantas: plantas,
         onOpenPlant: _openPlant,
-        onScan: _openScanner,
-        onWater: () => _updateWatering(!_watered),
+        onAddPlant: _adicionarPlanta,
       ),
-      PlantsPage(planta: _planta, onOpenPlant: _openPlant),
-      CareGuidePage(especie: _planta.especie),
-      ProfilePage(jardineiro: _jardineiro),
+      CareGuidePage(especie: _especieGuia),
+      ProfilePage(jardineiro: _jardineiro, plantasAtivas: plantas.length),
     ];
 
-    return Scaffold( 
+    return Scaffold(
       body: SafeArea(child: pages[_currentIndex]),
       // Botão flutuante centralizado na barra de navegação (Scanner)
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'scanner',
-        onPressed: _openScanner,
-        elevation: 1,
-        backgroundColor: _sage,
-        foregroundColor: Colors.white,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.document_scanner_outlined, size: 25),
-      ),
+      floatingActionButton: planta != null
+          ? FloatingActionButton(
+              heroTag: 'scanner',
+              onPressed: () => _openScanner(planta),
+              elevation: 1,
+              backgroundColor: _sage,
+              foregroundColor: Colors.white,
+              shape: const CircleBorder(),
+              child: const Icon(Icons.document_scanner_outlined, size: 25),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: _GardenNavigation(
         selectedIndex: _currentIndex,
@@ -285,15 +348,21 @@ class HomePage extends StatelessWidget {
     required this.planta,
     required this.watered,
     required this.onOpenPlant,
+    required this.onOpenPlants,
     required this.onScan,
     required this.onWater,
+    required this.luzConcluida,
+    required this.onLight,
   });
 
   final Planta planta;
   final bool watered;
   final VoidCallback onOpenPlant;
+  final VoidCallback onOpenPlants;
   final VoidCallback onScan;
   final VoidCallback onWater;
+  final bool luzConcluida;
+  final VoidCallback onLight;
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +415,7 @@ class HomePage extends StatelessWidget {
               _SectionHeader(
                 title: 'Meu cultivo',
                 action: 'Ver tudo',
-                onAction: onOpenPlant,
+                onAction: onOpenPlants,
               ),
               const SizedBox(height: 14),
               _PlantOverviewCard(planta: planta, onTap: onOpenPlant),
@@ -363,7 +432,7 @@ class HomePage extends StatelessWidget {
                 done: watered,
                 icon: Icons.water_drop_outlined,
                 iconColor: const Color(0xFF5BA9D8),
-                title: watered ? 'Alface regada' : 'Regar a alface',
+                title: watered ? 'Rega concluída' : 'Regar ${planta.apelido}',
                 subtitle: watered
                     ? 'Tudo certo por hoje'
                     : 'Solo levemente seco',
@@ -374,17 +443,21 @@ class HomePage extends StatelessWidget {
                 ),
               ),
 
-              // TAREFA ESTÁTICA DE LUZ SOLAR
               const SizedBox(height: 10),
-              const _CareTask(
-                done: false,
+              _CareTask(
+                done: luzConcluida,
                 icon: Icons.wb_sunny_outlined,
                 iconColor: Color(0xFFE8AC31),
                 title: 'Checar a luz',
                 subtitle: 'Deixe receber sol da manhã',
-                trailing: Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF9BA49D),
+                trailing: IconButton(
+                  tooltip: luzConcluida
+                      ? 'Reabrir cuidado de luz'
+                      : 'Concluir cuidado de luz',
+                  onPressed: onLight,
+                  icon: Icon(
+                    luzConcluida ? Icons.check_circle : Icons.circle_outlined,
+                  ),
                 ),
               ),
 
@@ -701,9 +774,15 @@ int _diasDeCultivo(Planta planta) {
 
 /// Página de listagem de plantas do usuário e itens salvos na lista de desejos.
 class PlantsPage extends StatelessWidget {
-  const PlantsPage({super.key, required this.planta, required this.onOpenPlant});
-  final Planta planta;
-  final VoidCallback onOpenPlant;
+  const PlantsPage({
+    super.key,
+    required this.plantas,
+    required this.onOpenPlant,
+    required this.onAddPlant,
+  });
+  final List<Planta> plantas;
+  final ValueChanged<Planta> onOpenPlant;
+  final VoidCallback onAddPlant;
 
   @override
   Widget build(BuildContext context) {
@@ -734,15 +813,15 @@ class PlantsPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 25),
-        _PlantGridCard(planta: planta, onTap: onOpenPlant),
-        const SizedBox(height: 13),
-        _AddPlantCard(
-          onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Em breve você poderá adicionar novas plantas.'),
-            ),
-          ),
-        ),
+        if (plantas.isEmpty) ...[
+          const Text('Nenhuma planta no cultivo ativo.'),
+          const SizedBox(height: 13),
+        ],
+        for (final planta in plantas) ...[
+          _PlantGridCard(planta: planta, onTap: () => onOpenPlant(planta)),
+          const SizedBox(height: 13),
+        ],
+        _AddPlantCard(onTap: onAddPlant),
         const SizedBox(height: 28),
         const Text(
           'Na sua lista de desejos',
@@ -796,7 +875,7 @@ class _PlantGridCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  _HealthPill(status: planta.statusSaude),
+                  _HealthPill(estado: planta.estado),
                 ],
               ),
               const SizedBox(height: 4),
@@ -814,8 +893,8 @@ class _PlantGridCard extends StatelessWidget {
 
 /// Indicador em formato de pílula para o estado de saúde da planta.
 class _HealthPill extends StatelessWidget {
-  const _HealthPill({required this.status});
-  final StatusSaude status;
+  const _HealthPill({required this.estado});
+  final EstadoPlanta estado;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -824,11 +903,14 @@ class _HealthPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
     ),
     child: Text(
-      switch (status) {
-        StatusSaude.saudavel => 'Saudável',
-        StatusSaude.precisaDeCuidado => 'Precisa de cuidado',
-        StatusSaude.comDeficiencia => 'Com deficiência',
-        StatusSaude.emRecuperacao => 'Em recuperação',
+      switch (estado) {
+        EstadoPlanta.cadastrada => 'Cadastrada',
+        EstadoPlanta.saudavel => 'Saudável',
+        EstadoPlanta.precisaDeCuidado => 'Precisa de cuidado',
+        EstadoPlanta.emDiagnostico => 'Em diagnóstico',
+        EstadoPlanta.comDeficiencia => 'Com deficiência',
+        EstadoPlanta.emRecuperacao => 'Em recuperação',
+        EstadoPlanta.arquivada => 'Arquivada',
       },
       style: TextStyle(
         color: Color(0xFF56834B),
@@ -836,6 +918,65 @@ class _HealthPill extends StatelessWidget {
         fontWeight: FontWeight.w800,
       ),
     ),
+  );
+}
+
+class _CadastroPlantaDialog extends StatefulWidget {
+  const _CadastroPlantaDialog();
+
+  @override
+  State<_CadastroPlantaDialog> createState() => _CadastroPlantaDialogState();
+}
+
+class _CadastroPlantaDialogState extends State<_CadastroPlantaDialog> {
+  final _formulario = GlobalKey<FormState>();
+  String _nome = '';
+  String _nomeCientifico = '';
+
+  void _salvar() {
+    final formulario = _formulario.currentState!;
+    if (!formulario.validate()) return;
+    formulario.save();
+    Navigator.pop(
+      context,
+      EspeciePlanta(nomePopular: _nome, nomeCientifico: _nomeCientifico),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Adicionar planta'),
+    scrollable: true,
+    content: Form(
+      key: _formulario,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Nome da planta'),
+            validator: (valor) => (valor ?? '').trim().isEmpty
+                ? 'Informe o nome da planta.'
+                : null,
+            onSaved: (valor) => _nome = valor!.trim(),
+          ),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Nome científico (opcional)',
+            ),
+            onSaved: (valor) => _nomeCientifico = (valor ?? '').trim(),
+            onFieldSubmitted: (_) => _salvar(),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(onPressed: _salvar, child: const Text('Adicionar')),
+    ],
   );
 }
 
@@ -934,7 +1075,7 @@ class CareGuidePage extends StatelessWidget {
         const _TipHero(), // Dica em destaque da semana
         const SizedBox(height: 26),
         const Text(
-          'Para a sua alface',
+          'Guias de cuidado',
           style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 13),
@@ -1102,8 +1243,13 @@ class _GuideTile extends StatelessWidget {
 
 // PÁGINA DE PERFIL DO USUÁRIO com estatísticas de cultivo e opções de ajuste.
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key, required this.jardineiro});
+  const ProfilePage({
+    super.key,
+    required this.jardineiro,
+    required this.plantasAtivas,
+  });
   final Jardineiro jardineiro;
+  final int plantasAtivas;
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(22, 25, 22, 110),
@@ -1130,7 +1276,7 @@ class ProfilePage extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 31),
-      const _ProfileStatRow(),
+      _ProfileStatRow(plantasAtivas: plantasAtivas),
       const SizedBox(height: 28),
       const Text(
         'Preferências',
@@ -1155,7 +1301,8 @@ class ProfilePage extends StatelessWidget {
 
 /// Linha de estatísticas do perfil (Plantas, Dias cultivando, Guias lidos).
 class _ProfileStatRow extends StatelessWidget {
-  const _ProfileStatRow();
+  const _ProfileStatRow({required this.plantasAtivas});
+  final int plantasAtivas;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 17),
@@ -1163,12 +1310,12 @@ class _ProfileStatRow extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(20),
     ),
-    child: const Row(
+    child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _Stat(value: '1', label: 'Planta'),
-        _Stat(value: '12', label: 'Dias cultivando'),
-        _Stat(value: '3', label: 'Guias lidos'),
+        _Stat(value: '$plantasAtivas', label: 'Plantas ativas'),
+        const _Stat(value: '12', label: 'Dias cultivando'),
+        const _Stat(value: '3', label: 'Guias lidos'),
       ],
     ),
   );
@@ -1250,6 +1397,60 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
     setState(() => widget.onWaterChanged(!_watered));
   }
 
+  Future<void> _arquivar() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Arquivar planta?'),
+        content: const Text('A planta será removida do cultivo ativo.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Arquivar'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmar != true || !widget.planta.podeArquivar) return;
+    widget.planta.arquivar();
+    Navigator.pop(context);
+  }
+
+  Future<void> _registrarTratamento() async {
+    final diagnostico = widget.planta.deficienciaAtiva;
+    if (diagnostico == null) return;
+    String descricao = '';
+    final tratamento = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Registrar tratamento'),
+        content: TextField(
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Tratamento aplicado'),
+          onChanged: (valor) => descricao = valor,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (descricao.trim().isNotEmpty) Navigator.pop(context, descricao);
+            },
+            child: const Text('Registrar'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || tratamento == null) return;
+    setState(() => widget.planta.registrarTratamento(diagnostico, tratamento));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: _canvas,
@@ -1264,7 +1465,17 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
                 onTap: () => Navigator.pop(context),
               ),
               const Spacer(),
-              _RoundIconButton(icon: Icons.more_horiz_rounded, onTap: () {}),
+              if (widget.planta.podeArquivar)
+                PopupMenuButton<VoidCallback>(
+                  tooltip: 'Opções da planta',
+                  onSelected: (acao) => acao(),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: _arquivar,
+                      child: const Text('Arquivar planta'),
+                    ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 15),
@@ -1292,20 +1503,27 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      widget.planta.especie.nomeCientifico,
-                      style: TextStyle(
-                        fontStyle: FontStyle.italic,
-                        color: Color(0xFF718078),
+                    if (widget.planta.especie.nomeCientifico.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.planta.especie.nomeCientifico,
+                        style: const TextStyle(
+                          fontStyle: FontStyle.italic,
+                          color: Color(0xFF718078),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
-              _HealthPill(status: widget.planta.statusSaude),
+              _HealthPill(estado: widget.planta.estado),
             ],
           ),
+          if (widget.planta.estado == EstadoPlanta.comDeficiencia)
+            TextButton(
+              onPressed: _registrarTratamento,
+              child: const Text('Registrar tratamento'),
+            ),
           const SizedBox(height: 21),
           const Row(
             children: [
@@ -1462,25 +1680,68 @@ class ScannerPage extends StatefulWidget {
 // Controla a tela de escaneamento de folhas (simulando a câmera do celular).
 class _ScannerPageState extends State<ScannerPage> {
   Diagnostico? _diagnostico;
+  bool _selecionandoResultado = false;
 
-  void _scan() {
-    if (_diagnostico != null) return;
+  Future<void> _scan() async {
+    if (_diagnostico != null ||
+        _selecionandoResultado ||
+        !widget.planta.podeEscanear) {
+      return;
+    }
+    _selecionandoResultado = true;
+    final reavaliacao = widget.planta.estado == EstadoPlanta.emRecuperacao;
+    final resultado = reavaliacao
+        ? await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Resultado da reavaliação simulada'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Sem deficiência'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Deficiência persiste'),
+                ),
+              ],
+            ),
+          )
+        : true;
+    _selecionandoResultado = false;
+    if (!mounted || resultado == null || !widget.planta.podeEscanear) return;
     final agora = DateTime.now();
-    final diagnostico = widget.planta.registrarDiagnostico(
+    final diagnostico = widget.planta.iniciarDiagnostico(
       realizadoEm: agora,
-      status: StatusDiagnostico.concluido,
-      observacao: 'Análise concluída agora',
       uri: 'horta-demo:/folha',
       capturadaEm: agora,
     );
-    diagnostico.adicionarAchado(
-      confianca: 0.7,
-      severidade: Severidade.leve,
-      recomendacao: 'Adicione composto orgânico ao solo.\n'
-          'Regue sem encharcar e acompanhe por 7 dias.',
-      deficiencia: widget.deficiencia,
-    );
+    final deficiencia = widget.deficiencia;
     setState(() => _diagnostico = diagnostico);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      diagnostico.finalizar(
+        StatusDiagnostico.falhou,
+        'Escaneamento interrompido',
+      );
+      return;
+    }
+    if (resultado) {
+      diagnostico.adicionarAchado(
+        confianca: 0.7,
+        severidade: Severidade.leve,
+        recomendacao: 'Adicione composto orgânico ao solo.\n'
+            'Regue sem encharcar e acompanhe por 7 dias.',
+        deficiencia: deficiencia,
+      );
+    }
+    diagnostico.finalizar(
+      StatusDiagnostico.concluido,
+      resultado
+          ? 'Análise concluída agora'
+          : 'Sem deficiência na reavaliação simulada',
+    );
+    setState(() {});
   }
 
   @override
@@ -1488,6 +1749,17 @@ class _ScannerPageState extends State<ScannerPage> {
     backgroundColor: const Color(0xFF163125),
     body: SafeArea(
       child: switch (_diagnostico) {
+        final diagnostico?
+            when diagnostico.status == StatusDiagnostico.emAnalise =>
+          const Center(
+            child: CircularProgressIndicator(semanticsLabel: 'Analisando folha'),
+          ),
+        final diagnostico? when diagnostico.achados.isEmpty => Center(
+          child: FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(diagnostico.observacao),
+          ),
+        ),
         final diagnostico? => _DiagnosisResult(
           diagnostico: diagnostico,
           onClose: () => Navigator.pop(context),
@@ -1743,7 +2015,7 @@ class _DiagnosisResult extends StatelessWidget {
                   ),
                 ),
                 child: const Text(
-                  'Salvar diagnóstico',
+                  'Concluir',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),

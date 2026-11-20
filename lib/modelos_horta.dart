@@ -2,6 +2,16 @@ import 'dart:math';
 
 enum StatusSaude { saudavel, precisaDeCuidado, comDeficiencia, emRecuperacao }
 
+enum EstadoPlanta {
+  cadastrada,
+  saudavel,
+  precisaDeCuidado,
+  emDiagnostico,
+  comDeficiencia,
+  emRecuperacao,
+  arquivada,
+}
+
 enum TipoCuidado { rega, luz, nutricao }
 
 enum StatusTarefa { pendente, concluida }
@@ -32,78 +42,158 @@ class Jardineiro {
   final _hortas = <Horta>[];
   List<Horta> get hortas => List.unmodifiable(_hortas);
 
-  Horta criarHorta(String nome) {
-    final horta = Horta._(this, nome);
+  Horta criarHorta(String nome, {DateTime Function()? relogio}) {
+    final horta = Horta._(this, nome, relogio ?? DateTime.now);
     _hortas.add(horta);
     return horta;
   }
 }
 
 class Horta {
-  Horta._(this.jardineiro, this.nome);
+  Horta._(this.jardineiro, this.nome, this._relogio);
 
   final String id = _uuid();
   final Jardineiro jardineiro;
   final String nome;
+  final DateTime Function() _relogio;
   final _plantas = <Planta>[];
   List<Planta> get plantas => List.unmodifiable(_plantas);
+  Iterable<Planta> get plantasAtivas =>
+      _plantas.where((planta) => planta.estado != EstadoPlanta.arquivada);
 
   Planta plantar({
     required String apelido,
     required DateTime dataPlantio,
     required EspeciePlanta especie,
-    required StatusSaude statusSaude,
   }) {
-    final planta = Planta._(this, apelido, dataPlantio, especie, statusSaude);
+    final planta = Planta._(this, apelido, dataPlantio, especie);
     _plantas.add(planta);
     especie._plantas.add(planta);
+    planta._noCultivo = true;
     return planta;
   }
 }
 
 class Planta {
-  Planta._(
-    this.horta,
-    this.apelido,
-    DateTime plantio,
-    this.especie,
-    this.statusSaude,
-  ) : dataPlantio = DateTime(plantio.year, plantio.month, plantio.day);
+  Planta._(this.horta, this.apelido, DateTime plantio, this.especie)
+    : dataPlantio = DateTime(plantio.year, plantio.month, plantio.day);
 
   final String id = _uuid();
   final Horta horta;
   final String apelido;
   final DateTime dataPlantio;
   final EspeciePlanta especie;
-  StatusSaude statusSaude;
+  bool _noCultivo = false;
+  StatusSaude? _saudeAoArquivar;
+  Diagnostico? _analise;
+  Diagnostico? _deficienciaAtiva;
+  final _tratamentos = <Tratamento>[];
   final _tarefas = <TarefaCuidado>[];
   final _diagnosticos = <Diagnostico>[];
   List<TarefaCuidado> get tarefas => List.unmodifiable(_tarefas);
   List<Diagnostico> get diagnosticos => List.unmodifiable(_diagnosticos);
+  List<Tratamento> get tratamentos => List.unmodifiable(_tratamentos);
+  Diagnostico? get deficienciaAtiva => _deficienciaAtiva;
+
+  StatusSaude get statusSaude {
+    if (_saudeAoArquivar case final status?) return status;
+    if (_deficienciaAtiva case final diagnostico?) {
+      return _tratamentos.isNotEmpty &&
+              _tratamentos.last.diagnostico == diagnostico
+          ? StatusSaude.emRecuperacao
+          : StatusSaude.comDeficiencia;
+    }
+    final agora = horta._relogio();
+    return _tarefas.any((tarefa) => tarefa.estaVencida(agora))
+        ? StatusSaude.precisaDeCuidado
+        : StatusSaude.saudavel;
+  }
+
+  EstadoPlanta get estado {
+    if (_saudeAoArquivar != null) return EstadoPlanta.arquivada;
+    if (!_noCultivo) return EstadoPlanta.cadastrada;
+    if (_analise != null && _deficienciaAtiva == null) {
+      return EstadoPlanta.emDiagnostico;
+    }
+    return switch (statusSaude) {
+      StatusSaude.saudavel => EstadoPlanta.saudavel,
+      StatusSaude.precisaDeCuidado => EstadoPlanta.precisaDeCuidado,
+      StatusSaude.comDeficiencia => EstadoPlanta.comDeficiencia,
+      StatusSaude.emRecuperacao => EstadoPlanta.emRecuperacao,
+    };
+  }
+
+  bool get podeEscanear =>
+      _analise == null &&
+      (estado == EstadoPlanta.saudavel ||
+          estado == EstadoPlanta.precisaDeCuidado ||
+          estado == EstadoPlanta.emRecuperacao);
+
+  bool get podeArquivar => switch (estado) {
+    EstadoPlanta.saudavel ||
+    EstadoPlanta.precisaDeCuidado ||
+    EstadoPlanta.comDeficiencia ||
+    EstadoPlanta.emRecuperacao => true,
+    _ => false,
+  };
+
+  void _exigirAtiva() {
+    if (_saudeAoArquivar != null) {
+      throw StateError('A planta está arquivada.');
+    }
+  }
+
+  void arquivar() {
+    if (!podeArquivar) {
+      throw StateError('O estado atual da planta não permite arquivamento.');
+    }
+    // Uma reavaliação ainda aberta não pode receber resultados após a remoção.
+    _analise?.finalizar(StatusDiagnostico.falhou, 'Cultivo arquivado.');
+    _saudeAoArquivar = statusSaude;
+  }
 
   TarefaCuidado agendarCuidado(TipoCuidado tipo, DateTime previstaPara) {
+    _exigirAtiva();
     final tarefa = TarefaCuidado._(this, tipo, previstaPara);
     _tarefas.add(tarefa);
     return tarefa;
   }
 
-  Diagnostico registrarDiagnostico({
+  Diagnostico iniciarDiagnostico({
     required DateTime realizadoEm,
-    required StatusDiagnostico status,
-    required String observacao,
     required String uri,
     required DateTime capturadaEm,
   }) {
-    final diagnostico = Diagnostico._(
-      this,
-      realizadoEm,
-      status,
-      observacao,
-      uri,
-      capturadaEm,
-    );
+    if (!podeEscanear) {
+      throw StateError('O estado atual da planta não permite escaneamento.');
+    }
+    final diagnostico = Diagnostico._(this, realizadoEm, uri, capturadaEm);
     _diagnosticos.add(diagnostico);
+    _analise = diagnostico;
     return diagnostico;
+  }
+
+  Tratamento registrarTratamento(Diagnostico diagnostico, String descricao) {
+    if (estado != EstadoPlanta.comDeficiencia ||
+        !identical(diagnostico, _deficienciaAtiva)) {
+      throw StateError(
+        'O tratamento exige o diagnóstico da deficiência atual.',
+      );
+    }
+    if (descricao.trim().isEmpty) {
+      throw ArgumentError.value(
+        descricao,
+        'descricao',
+        'Descreva o tratamento',
+      );
+    }
+    final tratamento = Tratamento._(
+      diagnostico,
+      descricao.trim(),
+      horta._relogio(),
+    );
+    _tratamentos.add(tratamento);
+    return tratamento;
   }
 }
 
@@ -136,9 +226,18 @@ class TarefaCuidado {
   StatusTarefa get status =>
       _concluidaEm == null ? StatusTarefa.pendente : StatusTarefa.concluida;
 
-  void concluir(DateTime em) => _concluidaEm ??= em;
+  bool estaVencida(DateTime em) =>
+      _concluidaEm == null && !previstaPara.isAfter(em);
 
-  void reabrir() => _concluidaEm = null;
+  void concluir(DateTime em) {
+    planta._exigirAtiva();
+    _concluidaEm ??= em;
+  }
+
+  void reabrir() {
+    planta._exigirAtiva();
+    _concluidaEm = null;
+  }
 }
 
 class GuiaCuidado {
@@ -160,8 +259,6 @@ class Diagnostico {
   Diagnostico._(
     this.planta,
     this.realizadoEm,
-    this.status,
-    this.observacao,
     String uri,
     DateTime capturadaEm,
   ) {
@@ -171,12 +268,34 @@ class Diagnostico {
   final String id = _uuid();
   final Planta planta;
   final DateTime realizadoEm;
-  final StatusDiagnostico status;
-  final String observacao;
+  StatusDiagnostico _status = StatusDiagnostico.emAnalise;
+  StatusDiagnostico get status => _status;
+  String _observacao = '';
+  String get observacao => _observacao;
   late final ImagemEscaneada _imagem;
   ImagemEscaneada get imagem => _imagem;
   final _achados = <AchadoDiagnostico>[];
   List<AchadoDiagnostico> get achados => List.unmodifiable(_achados);
+
+  void _exigirEmAnalise() {
+    planta._exigirAtiva();
+    if (!identical(planta._analise, this)) {
+      throw StateError('O diagnóstico não está em análise.');
+    }
+  }
+
+  void finalizar(StatusDiagnostico resultado, String observacao) {
+    _exigirEmAnalise();
+    if (resultado == StatusDiagnostico.emAnalise) {
+      throw StateError('Informe um resultado final para o diagnóstico.');
+    }
+    _status = resultado;
+    _observacao = observacao;
+    if (resultado == StatusDiagnostico.concluido) {
+      planta._deficienciaAtiva = _achados.isEmpty ? null : this;
+    }
+    planta._analise = null;
+  }
 
   AchadoDiagnostico adicionarAchado({
     required double confianca,
@@ -184,6 +303,7 @@ class Diagnostico {
     required String recomendacao,
     required Deficiencia deficiencia,
   }) {
+    _exigirEmAnalise();
     if (!confianca.isFinite || confianca < 0 || confianca > 1) {
       throw RangeError.value(
         confianca,
@@ -202,6 +322,15 @@ class Diagnostico {
     deficiencia._achados.add(achado);
     return achado;
   }
+}
+
+class Tratamento {
+  Tratamento._(this.diagnostico, this.descricao, this.registradoEm);
+
+  final String id = _uuid();
+  final Diagnostico diagnostico;
+  final String descricao;
+  final DateTime registradoEm;
 }
 
 class ImagemEscaneada {
